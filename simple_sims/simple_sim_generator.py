@@ -48,12 +48,10 @@ Next steps:
 """
 
 # check the data
-
-
-# plt.figure()
-# plt.hist(neutral['value'], bins=50, color='red', alpha=0.5)
-# plt.hist(positive['value'], bins=50, color='blue', alpha=0.5)
-# plt.show()
+plt.figure()
+plt.hist(neutral['value'], bins=50, color='red', alpha=0.5)
+plt.hist(positive['value'], bins=50, color='blue', alpha=0.5)
+plt.show()
 
 # plt.figure()
 # plt.bar(x=neutral['snp'], height=neutral['state'], color='red')
