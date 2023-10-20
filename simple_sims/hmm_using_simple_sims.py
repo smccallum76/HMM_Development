@@ -6,6 +6,8 @@ amount of errors
 import pandas as pd
 import numpy as np
 import scipy.stats as stats
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix,  ConfusionMatrixDisplay
 
 def hmm_get_data(path):
     """
@@ -16,6 +18,7 @@ def hmm_get_data(path):
     Data as a pandas dataframe
     """
     # x = pd.read_csv(path)
+    # x = np.array(x)
 
     # delete the tranforms below, this was for testing with known data set that had weird formatting. Then
     # uncomment the x statement above
@@ -25,7 +28,7 @@ def hmm_get_data(path):
     x = x.flatten(order='C')
     x = x.reshape((len(x), 1))
     return x
-def hmm_intialize(mu_list, sd_list, pi_list):
+def hmm_init_params(mu_list, sd_list, pi_list):
     """
     Initialization parameters for HMM
     :param mu_list:
@@ -43,7 +46,7 @@ def hmm_intialize(mu_list, sd_list, pi_list):
     init['pi'] = pi_list
     return init
 
-def hmm_transition(a_list):
+def hmm_init_trans(a_list):
     """
     Reshape a list of transition values into a square matrix
     :param a_list:
@@ -74,18 +77,18 @@ def hmm_norm_pdf(x, mu, sd):
     """
     p = stats.norm.pdf(x=x,  loc=mu, scale=sd)
     return p
-def hmm_forward(init, data, A_trans):
+def hmm_forward(params, data, A_trans):
     # some initializations and settings
     n = len(data)
     A_new = A_trans
 
     # Probability density values for the data using distribution 1
-    bx1 = hmm_norm_pdf(x=data, mu=init.loc[0, 'mu'], sd=init.loc[0, 'sd'])
-    alpha1 = np.array(np.log(bx1[0] * init.loc[0, 'pi']))
+    bx1 = hmm_norm_pdf(x=data, mu=params.loc[0, 'mu'], sd=params.loc[0, 'sd'])
+    alpha1 = np.array(np.log(bx1[0] * params.loc[0, 'pi']))
 
     # Probability density values for the data using distribution 2
-    bx2 = hmm_norm_pdf(x=data, mu=init.loc[1, 'mu'], sd=init.loc[1, 'sd'])
-    alpha2 = np.array(np.log(bx2[0] * init.loc[1, 'pi']))
+    bx2 = hmm_norm_pdf(x=data, mu=params.loc[1, 'mu'], sd=params.loc[1, 'sd'])
+    alpha2 = np.array(np.log(bx2[0] * params.loc[1, 'pi']))
 
     # Initial m values (slightly modified from R code)
     m1_alpha = np.array(max(alpha1, alpha2))
@@ -106,7 +109,7 @@ def hmm_forward(init, data, A_trans):
         # calculation of alpha when i=2
         alpha2 = np.append(alpha2, np.log(bx2[t]) + m2_alpha[t] + np.log(np.exp(m2_alpha_j1 - m2_alpha[t]) + np.exp(m2_alpha_j2 - m2_alpha[t])))
 
-    # m value for log-likelihood, forward algorithm
+    # max value for log-likelihood, forward algorithm
     m_alpha_ll = max(alpha1[n-1], alpha2[n-1])
     # Forward algorithm log-likelihood
     fwd_ll = m_alpha_ll + np.log(np.exp(alpha1[n-1] - m_alpha_ll) + np.exp(alpha2[n-1] - m_alpha_ll))
@@ -115,17 +118,16 @@ def hmm_forward(init, data, A_trans):
 
     return fwd_ll, alpha
 
-def hmm_backward(init, data, A_trans):
+def hmm_backward(params, data, A_trans):
     # some initializations and settings
     n = len(data)
     A_new = A_trans
 
     # Initial values for beta1 and beta2 at t=n
-
     # Probability density values for the data using distribution 1
-    bx1 = hmm_norm_pdf(x=data, mu=init.loc[0, 'mu'], sd=init.loc[0, 'sd'])
+    bx1 = hmm_norm_pdf(x=data, mu=params.loc[0, 'mu'], sd=params.loc[0, 'sd'])
     # Probability density values for the data using distribution 2
-    bx2 = hmm_norm_pdf(x=data, mu=init.loc[1, 'mu'], sd=init.loc[1, 'sd'])
+    bx2 = hmm_norm_pdf(x=data, mu=params.loc[1, 'mu'], sd=params.loc[1, 'sd'])
 
     beta1 = np.zeros(n)
     beta1[n-1] = (np.log(1))
@@ -146,8 +148,8 @@ def hmm_backward(init, data, A_trans):
       beta2[t] = m2_beta + np.log(np.exp(m2_beta_j1 - m2_beta) + np.exp(m2_beta_j2 - m2_beta))
 
     # first and second parts of m value for log-likelihood backward algorithm
-    m_beta_ll1 = (beta1[0] + np.log(init.loc[0, 'pi']) + np.log(bx1[0]))[0]
-    m_beta_ll2 = (beta2[0] + np.log(init.loc[0, 'pi']) + np.log(bx2[0]))[0]
+    m_beta_ll1 = (beta1[0] + np.log(params.loc[0, 'pi']) + np.log(bx1[0]))[0]
+    m_beta_ll2 = (beta2[0] + np.log(params.loc[0, 'pi']) + np.log(bx2[0]))[0]
     # m value for log likelihood, backward algorithm
     m_beta_ll = max(m_beta_ll1, m_beta_ll2)
     # Backward algorithm log likelihood
@@ -159,202 +161,125 @@ def hmm_backward(init, data, A_trans):
 
 def hmm_gamma(alpha, beta, n):
     # log gamma z's
-    m_gamma = np.maximum(alpha[0] + beta[0], alpha[1] + beta[1])
-    log_gamma1 = alpha[0] + beta[0] - m_gamma - np.log(np.exp(alpha[0] + beta[0] - m_gamma) + np.exp(alpha[0] + beta[0] - m_gamma))
+    # np.maximum returns an array that contains the max value of both comparisons, and then np.max returns the max
+    # of the np.maximum array.
+    m_gamma = np.max(np.maximum(alpha[0] + beta[0], alpha[1] + beta[1]))
+    log_gamma1 = alpha[0] + beta[0] - m_gamma - np.log(np.exp(alpha[0] + beta[0] - m_gamma) + np.exp(alpha[1] + beta[1] - m_gamma))
     gamma1 = np.exp(log_gamma1)
 
     z = np.zeros(n) # n is the length of the data
     z_draw = np.random.uniform(low=0, high=1, size=n)
     z[z_draw <= gamma1] = 1
-    return z
+    return z, gamma1
 
-def hmm_update():
-    pass
-    return
+def hmm_update_mu(z):
+    # This will need to be generalized to not expect only two distributions
+    mu1 = np.sum(data[z == 1]) / np.sum(z)
+    mu2 = np.sum(data[z == 0]) / (len(z) - np.sum(z))
+    return mu1, mu2
 
+def hmm_update_sigma(z):
+    sigma1 = np.sum((data[z == 1] - mu1_new) ** 2) / np.sum(z)
+    sigma2 = np.sum((data[z == 0] - mu2_new) ** 2) / (len(z) - np.sum(z))
+    return np.sqrt(sigma1), np.sqrt(sigma2)
+
+def hmm_update_pi(z, gamma):
+    pi1 = len(z[z==1]) / len(z)
+    # pi2 = 1 - gamma[0]
+    pi2 = 1 - pi1
+    return pi1, pi2
+
+def hmm_update_trans(z):
+    # indicator function for the transition matrix
+    z1_stay = 0
+    z1_arrive = 0
+    for i in range(0, len(z) - 1):
+        if (z[i] == 1) and (z[i + 1] == 1):
+            z1_stay += 1
+        if (z[i] == 0) and (z[i + 1] == 1):
+            z1_arrive += 1
+    # update of transition matrix using the indicator function
+    A_trans[0, 0] = z1_stay / sum(z)
+    A_trans[0, 1] = 1 - A_trans[0, 0]
+    A_trans[1, 0] = z1_arrive / len(z[z == 0])
+    A_trans[1, 1] = 1 - A_trans[1, 0]
+    return A_trans
+
+# input the data
 path = 'output/HMM_data_final.txt'
-data = hmm_get_data(path)
-init = hmm_intialize(mu_list=[8, 14], sd_list=[5**0.5, 5**0.5], pi_list=[0.5, 0.5])
-A_trans = hmm_transition(a_list=[0.8, 0.2, 0.2, 0.8])
-fwd, alpha = hmm_forward(init=init, data=data, A_trans=A_trans)
-bwd, beta = hmm_backward(init=init, data=data, A_trans=A_trans)
-z = hmm_gamma(alpha=alpha, beta=beta, n=len(data))
-print(bwd)
-print(fwd)
-print(fwd-bwd)
+# data = hmm_get_data(path)
+data = pd.read_csv('output/simple_sims.csv')
+path_actual = data['state']
+data = np.array(data['value']).reshape((len(data), 1))
 
+# initialize some params
+mu_list = [2.0, 15.0]
+sd_list = [2.0, 2.0]
+pi_list = [0.99, 0.01]
+a_list = [0.999, 0.001, 0.2, 0.8]
 
-"""
------------------------------------------------------------------------------------------------------------------------
-R Code
------------------------------------------------------------------------------------------------------------------------
+params = hmm_init_params(mu_list=mu_list, sd_list=sd_list, pi_list=pi_list)
+A_trans = hmm_init_trans(a_list=a_list)
 
-hmm_2component = function(hmm_data, num_iter, lag=1, burnin=0){
+# this will get looped for some set of iterations
+num_iter = 200
 
-  # initializations
-  n = length(hmm_data)
-  mu1_new = 8
-  mu2_new = 14
-  s1_new = 5
-  s2_new = 5
-  pi1_new = 0.5
-  pi2_new = 1 - pi1_new
-  keep = c() # initialize vector to determine retained samples after
-  # adjust number of iterations to account for lag and burn-in
-  num_iter_tot = num_iter * lag + burnin
-  # empty vectors to hold parameter updates
-  mu1_vec = c()
-  mu2_vec = c()
-  s1_vec = c()
-  s2_vec = c()
-  pi1_vec = c()
-  a11_vec = c()
-  a22_vec = c()
-  # Initial elements of transition matrix
-  a11_new = 0.8
-  a12_new = 0.2
-  a21_new = 0.2
-  a22_new = 0.8
-  A_new = matrix(c(a11_new, a12_new, a21_new, a22_new), nrow=2,ncol=2, byrow=TRUE)
+for i in range(num_iter):
+    if i%10 == 0:
+        print(i)
+    fwd, alpha = hmm_forward(params=params, data=data, A_trans=A_trans)
+    bwd, beta = hmm_backward(params=params, data=data, A_trans=A_trans)
+    z, gamma = hmm_gamma(alpha=alpha, beta=beta, n=len(data))
+    mu1_new, mu2_new = hmm_update_mu(z)
+    sigma1_new, sigma2_new = hmm_update_sigma(z)
+    pi1_new, pi2_new = hmm_update_pi(z, gamma)
+    A_trans = hmm_update_trans(z)
+    # update the params df with the updated values above
+    params.loc[0, 'mu'] = mu1_new
+    params.loc[1, 'mu'] = mu2_new
+    params.loc[0, 'sd'] = sigma1_new
+    params.loc[1, 'sd'] = sigma2_new
+    params.loc[0, 'pi'] = pi1_new
+    params.loc[1, 'pi'] = pi2_new
 
-  for (i in 1:num_iter){
-    # flag rows to retain based on lag and burnin
-    if ((i%%lag==0)&(i>burnin)){
-        keep = c(keep, 1) # if value is 1 then retain the sample
-    } else keep = c(keep, 0)
-    # -----------------------------------------------------------------------------
-    # --------------------FORWARD ALGORITHM ---------------------------------------
-    # -----------------------------------------------------------------------------
-    # Probability density values for the data using distribution 1
-    bx1 =dnorm(hmm_data, mean=mu1_new, sd=sqrt(s1_new))
-    alpha1 = c(log(bx1[1] * pi1_init)) # the first entry for alpha1 is bx1
-    # Probability density values for the data using distribution 2
-    bx2 = dnorm(hmm_data, mean=mu2_new, sd=sqrt(s2_new))
-    alpha2 = c(log(bx2[1] * pi2_new)) # the first entry for alpha2 is bx2
-    # Initial m values (not exactly correct, but never used)
-    m1_alpha = c(max(log(bx1[1]), log(bx2[1])))
-    m2_alpha = c(max(log(bx1[1]), log(bx2[1])))
+path_pred = z
+print(A_trans)
+print(params)
 
-    for (t in 2:n){
-        # Alpha for i=1
-        m1_alpha_j1 = (alpha1[t-1]) + log(A_new[1,1]) # m when j=1 and i=1
-        m1_alpha_j2 = (alpha2[t-1]) + log(A_new[2,1]) # m when j=2 and i=1
-        m1_alpha = c(m1_alpha, max(m1_alpha_j1, m1_alpha_j2)) # max of m1_j1 and m1_j2
-        # calculation for alpha when i=1
-        alpha1 = c(alpha1, log(bx1[t]) + m1_alpha[t] + log(exp(m1_alpha_j1 -m1_alpha[t]) + exp(m1_alpha_j2 - m1_alpha[t])))
+''' PLOT THE DATA '''
+x_axis = np.linspace(np.floor(np.min(data)), np.ceil(np.max(data)), num=100)
+dist1 = stats.norm.pdf(x_axis, loc=params.loc[0, 'mu'], scale=params.loc[0, 'sd']) * params.loc[0, 'pi']
+dist2 = stats.norm.pdf(x_axis, loc=params.loc[1, 'mu'], scale=params.loc[1, 'sd']) * params.loc[1, 'pi']
 
-        # Alpha for i=2
-        m2_alpha_j1 = (alpha1[t-1]) + log(A_new[1,2]) # m when j=1 and i=2
-        m2_alpha_j2 = (alpha2[t-1]) + log(A_new[2,2]) # m when j=2 and i=2
-        m2_alpha = c(m2_alpha, max(m2_alpha_j1, m2_alpha_j2)) # max of m2_j1 and m2_j2
-        # calculation of alpha when i=2
-        alpha2 = c(alpha2, log(bx2[t]) + m2_alpha[t] + log(exp(m2_alpha_j1 -m2_alpha[t]) + exp(m2_alpha_j2 - m2_alpha[t])))
+plt.figure(figsize=(10, 10))
+plt.hist(data, density=True, bins=75, color='black', alpha=0.2, label='Data')
+plt.plot(x_axis, dist1, color='red', label='Dist1')
+plt.plot(x_axis, dist2, color='blue', label='Dist2')
+plt.plot(x_axis, dist1 + dist2, color='purple', label='Dist1 + Dist2')
+plt.legend(loc='upper left')
+plt.xlabel('values')
+plt.ylabel('density')
+plt.show()
 
-      }
-    # m value for log-likelihood, forward algorithm
-    m_alpha_ll = max(alpha1[n], alpha2[n])
-    # Forward algorithm log-likelihood
-    fwd_ll = m_alpha_ll + log( exp(alpha1[n] - m_alpha_ll) + exp( alpha2[n] - m_alpha_ll ) )
-
-    # -----------------------------------------------------------------------------
-    # --------------------BACKWARD ALGORITHM --------------------------------------
-    # -----------------------------------------------------------------------------
-
-    # Initial values for beta1 and beta2 at t=n
-    beta1 = numeric(length=n)
-    beta1[n] = (log(1))
-    beta2 = numeric(length=n)
-    beta2[n] = (log(1))
-
-    for (t in (n-1):1){
-      # beta for i=1
-      m1_beta_j1 = beta1[t+1] + log(A_new[1,1]) + log(bx1[t+1]) # m when j=1 and i=1
-      m1_beta_j2 = beta2[t+1] + log(A_new[1,2]) + log(bx2[t+1]) # m when j=2 and i=1
-      m1_beta = max(m1_beta_j1, m1_beta_j2)
-      beta1[t] = m1_beta + log( exp(m1_beta_j1 - m1_beta) + exp(m1_beta_j2 - m1_beta))
-
-      # beta for i=2
-      m2_beta_j1 = beta1[t+1] + log(A_new[2,1]) + log(bx1[t+1]) # m when j=1 and i=2
-      m2_beta_j2 = beta2[t+1] + log(A_new[2,2]) + log(bx2[t+1]) # m when j=2 and i=2
-      m2_beta = max(m2_beta_j1, m2_beta_j2)
-      beta2[t] = m2_beta + log( exp(m2_beta_j1 - m2_beta) + exp(m2_beta_j2 - m2_beta))
-
-    }
-    # first and second parts of m value for log-likelihood backward algorithm
-    m_beta_ll1 = beta1[1] + log(pi1_new) + log(bx1[1])
-    m_beta_ll2 = beta2[1] + log(pi2_new) + log(bx2[1])
-    # m value for log likelihood, backward algorithm
-    m_beta_ll = max(m_beta_ll1, m_beta_ll2)
-    # Backward algorithm log likelihood
-    bwd_ll = m_beta_ll + log(exp( m_beta_ll1 - m_beta_ll ) + exp(m_beta_ll2 - m_beta_ll))
-
-    # -----------------------------------------------------------------------------
-    # -------------------- GAMMA AND Z---------------------------------------------
-    # -----------------------------------------------------------------------------
-
-    # log gamma z's
-    m_gamma = max(alpha1 + beta1, alpha2 + beta2)
-    log_gamma1 = alpha1 + beta1 - m_gamma - log( exp( alpha1 + beta1 - m_gamma ) + exp( alpha2 + beta2 - m_gamma ))
-    gamma1 = exp(log_gamma1)
-
-    z = numeric(length=length(hmm_data))
-    z_draw = runif(n=length(hmm_data))
-    z[z_draw <= gamma1 ] = 1
-
-    # -----------------------------------------------------------------------------
-    # -------------------- UPDATE PARAMETERS --------------------------------------
-    # -----------------------------------------------------------------------------
-
-    # Update mu1, mu2, sigma1^2, sigma2^2, pi1, pi2, and transition matrix
-    mu1_new = sum(hmm_data[z==1]) / sum(z)
-    mu2_new = sum(hmm_data[z==0]) / (length(z) - sum(z))
-    sigma1_new = sum( (hmm_data[z==1] - mu1_new)^2 ) / sum(z)
-    sigma2_new = sum( (hmm_data[z==0] - mu2_new)^2 ) / (length(z) - sum(z))
-    # pi1_new = gamma1[1]
-    pi1_new = length(z[z==1]) / length(z)
-    pi2_new = 1 - gamma1[1]
-
-    # indicator function for transition matrix
-    z1_stay=0
-    z1_arrive=0
-    for (v in 1:(length(z)-1)){
-      if ((z[v]==1) & (z[v+1]==1)){
-        z1_stay=z1_stay+1
-      }
-      if ((z[v]==0) & (z[v+1]==1)){
-        z1_arrive=z1_arrive+1
-      }
-    }
-    # updated elements for transition matrix
-    a11_new = z1_stay / sum(z)
-    a12_new = 1 - a11_new
-    a21_new = z1_arrive / length(z[z==0])
-    a22_new = 1 - a21_new
-    # final updated transition matrix
-    A_new = matrix(c(a11_new, a12_new, a21_new, a22_new), nrow=2,ncol=2, byrow=TRUE)
-    # save the parameters to their vectors
-    mu1_vec = c(mu1_vec, mu1_new)
-    mu2_vec = c(mu2_vec, mu2_new)
-    s1_vec = c(s1_vec, sigma1_new)
-    s2_vec = c(s2_vec, sigma2_new)
-    pi1_vec = c(pi1_vec, pi1_new)
-    a11_vec = c(a11_vec, a11_new)
-    a22_vec = c(a22_vec, a22_new)
-  }
-
-  df = data.frame(
-    mu1 = mu1_vec,
-    mu2 = mu2_vec,
-    s1 = s1_vec,
-    s2 = s2_vec,
-    pi1 = pi1_vec,
-    a11 = a11_vec,
-    a22 = a22_vec,
-    keep = keep
-  )
-  # final output dataframe removing the lag and burn-in samples
-  out = df[df$keep==1,]
-  return(df)
-}
+''' CONFUSION MATRIX '''
+cm = confusion_matrix(path_actual, path_pred)
+disp = ConfusionMatrixDisplay(cm, display_labels=['Sweep', 'Neutral'])
+disp.plot()
+plt.show()
 
 """
+Notes and next steps:
+- The script does a nice job of identifying the params of the two normal distributions
+- I will need to think about how to add flexibility for multiple distributions
+- I will need to add burn-in and lag
+- I need to review the steps as was done for SWIFr (create a graphical review of the mechanics)
+- I will likely need to convert from stochastic EM to Baum-Welch
+- I will need to think about how to combine more than one column of data (e.g., this script simulates Fst, but I need
+to combine Fst, XP-EHH, DDAF, iHS). 
+
+"""
+
+
+
+
+
