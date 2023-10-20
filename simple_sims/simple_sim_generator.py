@@ -14,32 +14,56 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 samples = 10000
-cut = 0.95
+mu_n = 3  # mean for neutral state normal distribution
+sd_n = 2  # sd for neutral state normal distribution
+mu_p = 8  # mean for positive state normal distribution
+sd_p = 2  # sd for positive state normal distribution
+
 data = pd.DataFrame(columns=['state', 'label', 'value'])
+a_tran = np.array([[0.99, 0.01], [0.2, 0.8]])
 
-for i in range(samples):
-    select = np.random.uniform(low=0, high=1, size=1)[0]
-    if select <= cut:
-        coin = np.random.normal(loc=3, scale=2, size=1)
-        state = 0
-        label = 'N'
+'''Initiate with a neutral state'''
+state = []; label = []; coin = []
+state.append(0)
+label.append('N')
+coin.append(np.random.normal(loc=mu_n, scale=sd_n, size=1)[0])
 
-    else:
-        coin = np.random.normal(loc=8, scale=2, size=1)
-        state = 1
-        label = 'P'
-    data.loc[i, 'state'] = state
-    data.loc[i, 'label'] = label
-    data.loc[i, 'value'] = coin
-    data.loc[i, 'snp'] = i+1
+for i in range(1, samples):
+    if state[i-1] == 0:  # if the state is neutral
+        draw = np.random.uniform(low=0, high=1, size=1)[0]
+        if draw <= a_tran[0, 0]:  # if yes, then we stay in the neutral state
+            state.append(0)
+            label.append('N')
+            coin.append(np.random.normal(loc=mu_n, scale=sd_n, size=1)[0])
+        else:  # else we bump to the positive state
+            state.append(1)
+            label.append('P')
+            coin.append(np.random.normal(loc=mu_p, scale=sd_p, size=1)[0])
+
+    if state[i-1] == 1:  # if the state is positive
+        draw = np.random.uniform(low=0, high=1, size=1)[0]
+        if draw <= a_tran[1, 1]:  # if yes, then we stay in the positive state
+            state.append(1)
+            label.append('P')
+            coin.append(np.random.normal(loc=mu_p, scale=sd_p, size=1)[0])
+        else:  # else we bump to the negative state
+            state.append(0)
+            label.append('N')
+            coin.append(np.random.normal(loc=mu_n, scale=sd_n, size=1)[0])
+
+data['state'] = state
+data['label'] = label
+data['value'] = coin
+data = data.reset_index().rename(columns={'index': 'snp'})
 
 neutral = data[data['state'] == 0]
 positive = data[data['state'] == 1]
 
 print("Count of Neutral SNPs: ", len(neutral))
 print("Count of Positive SNPs: ", len(positive))
+print("Percent of Neutral SNPs: ", round(len(neutral) / len(data) * 100, 2), ' %')
 
-data.to_csv('output/simple_sims.csv', index=False)
+# data.to_csv('output/simple_sims.csv', index=False)
 """
 Next steps:
 1. For now we will assume the distributions are known as the first objective is to recreate the N,P string using HMM
