@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 
-samples = 2000
+samples = 20000
 mu_n = 3  # mean for neutral state normal distribution
 sd_n = 2  # sd for neutral state normal distribution
 mu_p = 8  # mean for positive state normal distribution
