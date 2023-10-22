@@ -150,7 +150,7 @@ def hmm_backward(params, data, A_trans):
 
     # first and second parts of m value for log-likelihood backward algorithm
     m_beta_ll1 = (beta1[0] + np.log(params.loc[0, 'pi']) + np.log(bx1[0]))[0]
-    m_beta_ll2 = (beta2[0] + np.log(params.loc[0, 'pi']) + np.log(bx2[0]))[0]
+    m_beta_ll2 = (beta2[0] + np.log(params.loc[1, 'pi']) + np.log(bx2[0]))[0]
     # m value for log likelihood, backward algorithm
     m_beta_ll = max(m_beta_ll1, m_beta_ll2)
     # Backward algorithm log likelihood
@@ -246,7 +246,7 @@ A_trans = hmm_init_trans(a_list=a_list)
 num_iter = 1  # set to 1 unless determine_params ==  'yes'
 
 for i in range(num_iter):
-    if i%10 == 0:
+    if i % 10 == 0:
         print(i)
     fwd, alpha = hmm_forward(params=params, data=data, A_trans=A_trans)
     bwd, beta = hmm_backward(params=params, data=data, A_trans=A_trans)
