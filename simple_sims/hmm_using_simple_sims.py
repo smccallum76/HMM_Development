@@ -28,7 +28,7 @@ def hmm_get_data(path):
     x = x.flatten(order='C')
     x = x.reshape((len(x), 1))
     return x
-def hmm_init_params(mu_list, sd_list, pi_list):
+def hmm_init_params(mu_list, sd_list, pi_list, state_list):
     """
     Initialization parameters for HMM
     :param mu_list:
@@ -40,10 +40,11 @@ def hmm_init_params(mu_list, sd_list, pi_list):
     :return:
     Dataframe containing the mu, sd, and pi values provided
     """
-    init = pd.DataFrame(columns=['mu', 'sd', 'pi'])
+    init = pd.DataFrame(columns=['mu', 'sd', 'pi', 'state'])
     init['mu'] = mu_list
     init['sd'] = sd_list
     init['pi'] = pi_list
+    init['state'] = state_list
     return init
 
 def hmm_init_trans(a_list):
@@ -163,11 +164,22 @@ def hmm_gamma(alpha, beta, n):
     # log gamma z's
     # np.maximum returns an array that contains the max value of both comparisons, and then np.max returns the max
     # of the np.maximum array.
+    """
+    To Do:
+    - This is currently written as though there are only two states, but it needs to be generalized to handle
+    multiple states. For instance, if there were three states, it might look like this:
+    m_gamma = np.max(np.maximum(alpha[0] + beta[0], alpha[1] + beta[1], alpha[2) + beta[2))
+    log_gamma1 = alpha[0] + beta[0] - m_gamma - np.log(np.exp(alpha[0] + beta[0] - m_gamma) + np.exp(alpha[1] + beta[1] - m_gamma + np.exp(alpha[2] + beta[2] - m_gamma))
+    log_gamma2 = alpha[1] + beta[1] - m_gamma - np.log(np.exp(alpha[0] + beta[0] - m_gamma) + np.exp(alpha[1] + beta[1] - m_gamma + np.exp(alpha[2] + beta[2] - m_gamma))
+    gamma1 = np.exp(log_gamma1)
+    gamma2 = np.exp(log_gamma2)
+    gamma3 = 1 - (gamma1 + gamma2)
+    """
     m_gamma = np.max(np.maximum(alpha[0] + beta[0], alpha[1] + beta[1]))
     log_gamma1 = alpha[0] + beta[0] - m_gamma - np.log(np.exp(alpha[0] + beta[0] - m_gamma) + np.exp(alpha[1] + beta[1] - m_gamma))
     gamma1 = np.exp(log_gamma1)
 
-    z = np.zeros(n) # n is the length of the data
+    z = np.zeros(n)  # n is the length of the data
     z_draw = np.random.uniform(low=0, high=1, size=n)
     z[z_draw <= gamma1] = 1
     return z, gamma1
@@ -184,7 +196,7 @@ def hmm_update_sigma(z):
     return np.sqrt(sigma1), np.sqrt(sigma2)
 
 def hmm_update_pi(z, gamma):
-    pi1 = len(z[z==1]) / len(z)
+    pi1 = len(z[z == 1]) / len(z)
     # pi2 = 1 - gamma[0]
     pi2 = 1 - pi1
     return pi1, pi2
@@ -209,20 +221,29 @@ def hmm_update_trans(z):
 path = 'output/HMM_data_final.txt'
 # data = hmm_get_data(path)
 data = pd.read_csv('output/simple_sims.csv')
-path_actual = data['state']
+pi_temp = len(data[data['label'] == 'N']) / len(data) # directly calculate the fraction of neutral events in use in pi_list
+path_actual = data['state'] # the actual sequence of 0's and 1's contained in the data ("truth")
 data = np.array(data['value']).reshape((len(data), 1))
 
 # initialize some params
-mu_list = [2.0, 15.0]
-sd_list = [2.0, 2.0]
-pi_list = [0.99, 0.01]
-a_list = [0.999, 0.001, 0.2, 0.8]
+'''
+The setup below is kind of problematic, but can be worked out later. For now, just ensure that the mu list contains
+every mean for all of the neutral and sweep events (same for the sd list). This allows for multiple mu entries for 
+(say) a neutral signature that might be characterized by multiple modes (same for sweeps).  However, you must be sure 
+that the 'state_list' contains the correct labels for the mu and sd entries (order matters). 
+'''
+determine_params = 'no'  # if we assume the distribution params are given then 'no', else type 'yes'
+mu_list = [3.0, 8.0]  # mean of each normal distribution
+sd_list = [2.0, 2.0]  # std deviation of each normal distribution
+pi_list = [pi_temp, 1-pi_temp]  # fraction of neutral and sweep events
+state_list = ['neutral', 'sweep']  # clas labels for each mu and sd entry
+a_list = [0.95, 0.05, 0.2, 0.8]  # transition matrix in a00, a01, a10, a11 format
 
-params = hmm_init_params(mu_list=mu_list, sd_list=sd_list, pi_list=pi_list)
+params = hmm_init_params(mu_list=mu_list, sd_list=sd_list, pi_list=pi_list, state_list=state_list)
 A_trans = hmm_init_trans(a_list=a_list)
 
 # this will get looped for some set of iterations
-num_iter = 200
+num_iter = 1  # set to 1 unless determine_params ==  'yes'
 
 for i in range(num_iter):
     if i%10 == 0:
@@ -234,13 +255,16 @@ for i in range(num_iter):
     sigma1_new, sigma2_new = hmm_update_sigma(z)
     pi1_new, pi2_new = hmm_update_pi(z, gamma)
     A_trans = hmm_update_trans(z)
-    # update the params df with the updated values above
-    params.loc[0, 'mu'] = mu1_new
-    params.loc[1, 'mu'] = mu2_new
-    params.loc[0, 'sd'] = sigma1_new
-    params.loc[1, 'sd'] = sigma2_new
-    params.loc[0, 'pi'] = pi1_new
-    params.loc[1, 'pi'] = pi2_new
+    if determine_params == 'yes':
+        # update the params df with the updated values above
+        params.loc[0, 'mu'] = mu1_new
+        params.loc[1, 'mu'] = mu2_new
+        params.loc[0, 'sd'] = sigma1_new
+        params.loc[1, 'sd'] = sigma2_new
+        params.loc[0, 'pi'] = pi1_new
+        params.loc[1, 'pi'] = pi2_new
+    else:
+        params = params
 
 path_pred = z
 print(A_trans)
