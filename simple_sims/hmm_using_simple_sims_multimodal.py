@@ -236,6 +236,56 @@ def hmm_update_trans(z):
     A_trans[1, 1] = 1 - A_trans[1, 0]
     return A_trans
 
+def hmm_viterbi(params, data, A_trans):
+    # some initializations and settings
+    n = len(data)
+    mu_n = params['mu'][params['state'] == 'neutral'].tolist()
+    mu_p = params['mu'][params['state'] == 'sweep'].tolist()
+    sd_n = params['sd'][params['state'] == 'neutral'].tolist()
+    sd_p = params['sd'][params['state'] == 'sweep'].tolist()
+    pi_n = params['pi'][params['state'] == 'neutral'].tolist()[0]
+    pi_p = params['pi'][params['state'] == 'sweep'].tolist()[0]
+
+    # Probability density values for the data using distribution 1
+    bx1_temp = hmm_norm_pdf(x=data, mu=mu_n[0], sd=sd_n[0])
+    for i in range(1, len(mu_n)):
+        bx1_temp = np.append(bx1_temp, hmm_norm_pdf(x=data, mu=mu_n[i], sd=sd_n[i]), axis=1)
+    bx1 = np.max(bx1_temp, axis=1)
+
+    # Probability density values for the data using distribution 2
+    bx2_temp = hmm_norm_pdf(x=data, mu=mu_p[0], sd=sd_p[0])
+    for i in range(1, len(mu_p)):
+        bx2_temp = np.append(bx2_temp, hmm_norm_pdf(x=data, mu=mu_p[i], sd=sd_p[i]), axis=1)
+    bx2 = np.max(bx2_temp, axis=1)
+
+    p_n = []  # list to hold the log probs of being in state H
+    p_p = []  # list to hold the log probs of being in state L
+    # take the log of all the Viterbi required properties
+    bx1 = np.log(bx1)
+    bx2 = np.log(bx2)
+    A_trans = np.log(A_trans)
+    pi_n = np.log(pi_n)
+    pi_p = np.log(pi_p)
+
+    for i in range(n):
+        if i == 0:
+            # The first element (0th position)
+            p_n.append(pi_n + bx1[i])
+            p_p.append(pi_p + bx2[i])
+        else:
+            # The second element
+            # H[datat[i]] is going to be equal to the probability of data[i] given state neutral (so, bx1)
+            p_n.append(bx1[i] + np.maximum(p_n[i - 1] + A_trans[0, 0], p_p[i - 1] + A_trans[1, 0]))
+            p_p.append(bx2[i] + np.maximum(p_p[i - 1] + A_trans[1, 1], p_n[i - 1] + A_trans[0, 1]))
+
+    p_zip = np.array([p_p, p_n])
+    # return the index of the max value in each column which corresponds to states 0, 1, ...
+    # note that in the event of a tie the first index is returned. However, in a real situation a tie would be extremely
+    # unlikely.
+    path = np.argmax(p_zip, axis=0)
+
+    return path
+
 # input the data
 data = pd.read_csv('output/simple_sims_multimodal.csv')
 pi_temp = len(data[data['label'] == 'N']) / len(data) # directly calculate the fraction of neutral events in use in pi_list
@@ -274,6 +324,8 @@ bwd, beta = hmm_backward(params=params, data=data, A_trans=A_trans)
 z, gamma = hmm_gamma(alpha=alpha, beta=beta, n=len(data))
 pi1_new, pi2_new = hmm_update_pi(z, gamma)
 A_trans = hmm_update_trans(z)
+# find the most likely path using the Viterbi algorithm
+path_viterbi = hmm_viterbi(params=params, data=data, A_trans=A_trans)
 
 ''' PLOT THE DATA '''
 path_pred = z
@@ -290,6 +342,12 @@ plt.show()
 
 ''' CONFUSION MATRIX '''
 cm = confusion_matrix(path_actual, path_pred)
+disp = ConfusionMatrixDisplay(cm, display_labels=['Sweep', 'Neutral'])
+disp.plot()
+plt.show()
+
+''' CONFUSION MATRIX '''
+cm = confusion_matrix(path_actual, path_viterbi)
 disp = ConfusionMatrixDisplay(cm, display_labels=['Sweep', 'Neutral'])
 disp.plot()
 plt.show()
