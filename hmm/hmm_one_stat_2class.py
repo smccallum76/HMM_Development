@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import scipy.stats as stats
 import pickle
+import os
 from sklearn import mixture
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix,  ConfusionMatrixDisplay
@@ -84,6 +85,8 @@ def hmm_forward(params, data, A_trans):
     # some initializations and settings
     n = len(data)
     A_new = A_trans
+
+    # this needs to be scrapped and replaced with the gmm data and init_df
     mu_n = params['mu'][params['state'] == 'neutral'].tolist()
     mu_p = params['mu'][params['state'] == 'sweep'].tolist()
     sd_n = params['sd'][params['state'] == 'neutral'].tolist()
@@ -92,10 +95,20 @@ def hmm_forward(params, data, A_trans):
     pi_p = params['pi'][params['state'] == 'sweep'].tolist()[0]
 
     # Probability density values for the data using distribution 1
+    """
+    [see sync notes 10/24/2023]
+    I did make a mistake with the bx1 and bx2 calculation. What I should have done is calculate 
+    the pdf for each of the neutral humps (modes) and then multiply those pdf by the weight of each hump. This is not 
+    an urgent problem to fix b/c we will get these weights from the GMM anyway, but probably worth adding on my own. 
+    See day 12 notes from class, but the idea is below. basically if hump-1 has weight of 0.25 and hump-2 has weight 
+    0.75 then the pdf would be [wgt1 * pdf1 + wgt2 * pdf2]. This can be done using g.weights_
+    """
     bx1_temp = hmm_norm_pdf(x=data, mu=mu_n[0], sd=sd_n[0])
     for i in range(1, len(mu_n)):
         bx1_temp = np.append(bx1_temp, hmm_norm_pdf(x=data, mu=mu_n[i], sd=sd_n[i]), axis=1)
     bx1 = np.max(bx1_temp, axis=1)
+    # I think that once the weights are included, the np.max function will be replaced with np.sum
+    # bx1 = np.sum(bx1_temp, axis=1)
     alpha1 = np.array(np.log(bx1[0] * pi_n)).reshape((1,))
     # bx1 = hmm_norm_pdf(x=data, mu=params.loc[0, 'mu'], sd=params.loc[0, 'sd'])  # old code for 2 distributions
     # alpha1 = np.array(np.log(bx1[0] * params.loc[0, 'pi']))  # old code for 2 distributions
@@ -150,6 +163,14 @@ def hmm_backward(params, data, A_trans):
 
     # Initial values for beta1 and beta2 at t=n
     # Probability density values for the data using distribution 1
+    """
+    [see sync notes 10/24/2023]
+    I did make a mistake with the bx1 and bx2 calculation. What I should have done is calculate 
+    the pdf for each of the neutral humps (modes) and then multiply those pdf by the weight of each hump. This is not 
+    an urgent problem to fix b/c we will get these weights from the GMM anyway, but probably worth adding on my own. 
+    See day 12 notes from class, but the idea is below. basically if hump-1 has weight of 0.25 and hump-2 has weight 
+    0.75 then the pdf would be [wgt1 * pdf1 + wgt2 * pdf2]. This can be done using g.weights_
+    """
     bx1_temp = hmm_norm_pdf(x=data, mu=mu_n[0], sd=sd_n[0])
     for i in range(1, len(mu_n)):
         bx1_temp = np.append(bx1_temp, hmm_norm_pdf(x=data, mu=mu_n[i], sd=sd_n[i]), axis=1)
@@ -288,30 +309,70 @@ def hmm_viterbi(params, data, A_trans):
 
     return path
 
-# input the data
+def hmm_get_swifr_classes(path):
+    # function to return the classes used in SWIFr (e.g., neutral, sweep, etc.)
+    c_list = pd.read_table(path + 'classes.txt', header=None)
+    c_list = list(c_list.iloc[:, 0])
+    return c_list
+
+def hmm_get_swifr_stats(path):
+    # function to copy the list of statistics that SWIFr used (e.g., fst, ihs, etc.)
+    s_list = pd.read_table(path + 'component_stats.txt', header=None)
+    s_list = list(s_list.iloc[:, 0])
+    return s_list
+
+def hmm_get_swifr_param_names(path):
+    # function to copy the pickled gmm parameters that were defined using SWIFr
+    sub_folder = 'AODE_params'  # folder that is created by SWIFr to stash pickled gmm
+    files = os.listdir(path + sub_folder)  # list of all files in the AODE_params folder
+    # HMM only needs the 1D params (no joint relationships are needed)
+    file_list = [f for f in files if "_1D_GMMparams" in f]
+    return file_list
+
+def hmm_init_params2(path):
+    """
+    Function to collect the classes, stats, and gmm names and return them as a df
+    """
+    # information below is a collection of lists that identifies the classes, stats, and names of the 1D gmm params
+    gmm_param_list = hmm_get_swifr_param_names(swifr_path)
+    class_list = hmm_get_swifr_classes(swifr_path)
+    stat_list = hmm_get_swifr_stats(swifr_path)
+
+    df = pd.DataFrame(columns=['stat', 'class', 'gmm_name', 'gmm'])
+    count=0
+    for c in class_list:
+        for s in stat_list:
+            df.loc[count, 'stat'] = s
+            df.loc[count, 'class'] = c
+            string = s + '_' + c
+            for g in gmm_param_list:
+                if string in g:
+                    df.loc[count, 'gmm_name'] = g  # name of gmm
+                    df.loc[count, 'gmm'] = pickle.load(open(path + 'AODE_params/' + g, 'rb'))  # actual gmm
+            count += 1
+    return df
+
+""" Path to data and params from GMM """
+swifr_path = '../../swifr_pkg/test_data/simulations_4_swifr_2class/'
+data_path = '../../swifr_pkg/test_data/simulations_4_swifr_test_2class/test/test'
+gmm_params = hmm_init_params2(swifr_path)
+# for dev, just use xpehh
+gmm_params = gmm_params[gmm_params['stat'] == 'xpehh']
+
+""" Path to data and data load (external for now) """
+# this will need to be a 'get' function, but keep it external for now
 data_orig = pd.read_table('../../swifr_pkg/test_data/simulations_4_swifr_test_2class/test/test', sep='\t')
-data = data_orig[data_orig['xpehh'] != -998]
+# for dev, just use xpehh
+data = data_orig['xpehh'][data_orig['xpehh'] != -998]
+# data = np.array(data['xpehh']).reshape((len(data), 1))  # not sure if I need to convert to numpy, don't if not needed
 
-
-pi_temp = len(data[data['label'] == 'N']) / len(data) # directly calculate the fraction of neutral events in use in pi_list
 pi_temp = 0.99999  # set this to the expected neutral fraction
-path_actual = data['label']  # the actual sequence of 0's and 1's contained in the data ("truth")
-data = np.array(data['xpehh']).reshape((len(data), 1))
 
-gmm_path = '../../swifr_pkg/test_data/simulations_4_swifr_2class/AODE_params/'
-g_sweep = pickle.load(open(gmm_path + 'xpehh_sweep_1D_GMMparams.p','rb'))
-s_means = g_sweep.means_
-s_cov = g_sweep.covariances_
-s_wgt = g_sweep.weights_
-
-g_neutral = pickle.load(open(gmm_path + 'xpehh_neutral_1D_GMMparams.p','rb'))
-
-# the g_x values below are not needed (I don't think). These are the scores in the GMM, but scores just refers to
-# the values provided by the user. For xpehh sweep, this would be 1000 rows of the xpehh stat that were user provided.
-g_x = pickle.load(open(gmm_path + 'xpehh_sweep_singles.p','rb'))
+# s_means = g_sweep.means_
+# s_cov = g_sweep.covariances_
+# s_wgt = g_sweep.weights_
 
 
-print('done')
 # initialize some params
 '''
 The setup below is kind of problematic, but can be worked out later. For now, just ensure that the mu list contains
