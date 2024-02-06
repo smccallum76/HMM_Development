@@ -357,7 +357,7 @@ swifr_path = '../../swifr_pkg/test_data/simulations_4_swifr_2class/'
 data_path = '../../swifr_pkg/test_data/simulations_4_swifr_test_2class/test/test'
 gmm_params = hmm_init_params2(swifr_path)
 # for dev, just use xpehh
-gmm_params = gmm_params[gmm_params['stat'] == 'xpehh']
+# gmm_params = gmm_params[gmm_params['stat'] == 'xpehh']
 
 """ Path to data and data load (external for now) """
 # this will need to be a 'get' function, but keep it external for now
