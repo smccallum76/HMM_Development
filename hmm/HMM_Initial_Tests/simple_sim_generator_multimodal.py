@@ -5,7 +5,7 @@ What is needed?
 - Coin_1 --> Fires off 99% of the time in the range N(mu=3, sd=2)...or whatever
 - Coin_2 --> Fires off 1% of the time in the range N(mu=5, sd=1)...or whatever
 
-Using the simple_sim output, I need to:
+Using the simple_sim output_db, I need to:
 - Use a HMM to determine if coin_1 (neutral) or coin_2 (sweep) was used
 """
 
@@ -74,7 +74,7 @@ print("Count of Positive SNPs: ", len(positive))
 print("Percent of Neutral SNPs: ", round(len(neutral) / len(data) * 100, 2), ' %')
 
 if save_data == 'yes':
-    data.to_csv('output/simple_sims_multimodal.csv', index=False)
+    data.to_csv('output_db/simple_sims_multimodal.csv', index=False)
 
 # check the data
 plt.figure()
